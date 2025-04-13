@@ -5,12 +5,13 @@ import time
 import alsaaudio
 import audioop
 
-from numpy import sin, cos, pi, fromstring, int16, mean, sqrt
+import numpy as np
 import tkinter as tk
 
 
 class LissajousMonitor(tk.Tk):
 
+    SQRT_2 = np.sqrt(2)
     pointSize = 2
     canvasColor = "black"
     gridColor = "dark slate gray"
@@ -21,11 +22,11 @@ class LissajousMonitor(tk.Tk):
     _scopeCenter = (0, 0)
     _max_r = 0
     _p_shift = 0
-    _sampleMAX = (2 ** 16) / 2
+    sample_max = (2 ** 16) / 2
 
     _pointsNumber = 196
-    _sampleSize = 48
-    _barFrequency = 64
+    sample_size = 48
+    bargraph_frequency = 64
     _pointCounter = 0
 
     _pps = 0
@@ -51,7 +52,7 @@ class LissajousMonitor(tk.Tk):
 
         self.overrideredirect(not titleBar)
 
-        self._readSoundThread = threading.Thread(target=self._readSND, args=())
+        self._readSoundThread = threading.Thread(target=self.read_alsa_audio, args=())
 
         if self.pointSize == 1:
             self._p_shift = 1
@@ -64,52 +65,52 @@ class LissajousMonitor(tk.Tk):
         self._readSoundThread.start()
 
 
-    def _splitStereo(self, stereodata):
-        temp_l_ch, temp_r_ch = b"", b""
-        x = 0
-        l = len(stereodata)
-        while x < l:
-            temp_l_ch += stereodata[x:x + 2]
-            temp_r_ch += stereodata[x + 2:x + 4]
-            x += 4
-        return (temp_l_ch, temp_r_ch)
+    @staticmethod
+    def split_stereo(stereodata):
+        channel_left, channel_right = b"", b""
+        for x in range(0, len(stereodata), 4):
+            channel_left += stereodata[x: x + 2]
+            channel_right += stereodata[x + 2: x + 4]
+        return (channel_left, channel_right)
 
 
-    def _readSND(self):
+    def read_alsa_audio(self):
 
-        SND_in = alsaaudio.PCM(alsaaudio.PCM_CAPTURE, alsaaudio.PCM_NORMAL)
-        SND_in.setchannels(2)
-        SND_in.setrate(44100)
-        SND_in.setformat(alsaaudio.PCM_FORMAT_S16_LE)
-        SND_in.setperiodsize(self._sampleSize)
-        idx = 0
-        bar_sample = ""
+        audio_in = alsaaudio.PCM(
+            alsaaudio.PCM_CAPTURE,
+            alsaaudio.PCM_NORMAL,
+            channels=2,
+            rate=44100,
+            format=alsaaudio.PCM_FORMAT_S16_LE,
+            periodsize=self.sample_size
+        )
+        idx, bar_sample = 0, b""
         while self._windowExists:
-            l, data = SND_in.read()
-            if l == self._sampleSize:
-                if idx == self._barFrequency:
-                    self._redrawBars(bar_sample)
-                    bar_sample = ""
-                    idx = 0
+            l, data = audio_in.read()
+            if l == self.sample_size:
+                if idx == self.bargraph_frequency:
+                    self.redraw_bargraphs(self.split_stereo(bar_sample))
+                    idx, bar_sample = 0, b""
 
-                self._redrawLissScope(data)
+                self._redrawLissScope(self.split_stereo(data))
                 bar_sample += data
                 idx += 1
 
 
-    def _redrawLissScope(self, data):
+    def _redrawLissScope(self, stereo_channels):
 
-        chL, chR = self._splitStereo(data)
-        for x in range(0, len(chL), self._sampleSize // 2):
+        channel_l, channel_r = stereo_channels
+
+        for x in range(0, len(channel_l), self.sample_size // 2):
 
             if self._pointCounter == self._pointsNumber:
                 self._pointCounter = 0
 
-            chLeft = mean(fromstring(chL[x:x + self._sampleSize // 2], dtype=int16))
-            chRight = mean(fromstring(chR[x:x + self._sampleSize // 2], dtype=int16))
+            channel_left = np.mean(np.frombuffer(channel_l[x: x + self.sample_size // 2], dtype=np.int16))
+            channel_right = np.mean(np.frombuffer(channel_r[x: x + self.sample_size // 2], dtype=np.int16))
 
-            x_scr = self._scopeCenter[0] + (self._max_r * chLeft / self._sampleMAX)
-            y_scr = self._scopeCenter[1] - (self._max_r * chRight / self._sampleMAX)
+            x_scr = self._scopeCenter[0] + (self._max_r * channel_left / self.sample_max)
+            y_scr = self._scopeCenter[1] - (self._max_r * channel_right / self.sample_max)
 
             self.canvas.coords(
                 f"liss_point_{self._pointCounter}",
@@ -129,69 +130,69 @@ class LissajousMonitor(tk.Tk):
             self._pps = 0
 
 
-    def _redrawBars(self, data):
+    def redraw_bargraphs(self, stereo_channels):
 
-        chL, chR = self._splitStereo(data)
+        channel_l, channel_r = stereo_channels
 
         mfc0, mfc1, mfc2, mfc3 = self._mFrameCoords
         lfc0, lfc1, lfc2, lfc3 = self._lFrameCoords
 
-        sc0, sc1 = self._scopeCenter
+        scx, scy = self._scopeCenter
 
-        rmsL = audioop.rms(fromstring(chL, dtype=int16), 2)
-        rmsR = audioop.rms(fromstring(chR, dtype=int16), 2)
+        rms_l = audioop.rms(np.frombuffer(channel_l, dtype=np.int16), 2)
+        rms_r = audioop.rms(np.frombuffer(channel_r, dtype=np.int16), 2)
+        
+        max_l = audioop.max(np.frombuffer(channel_l, dtype=np.int16), 2) / self.SQRT_2
+        max_r = audioop.max(np.frombuffer(channel_r, dtype=np.int16), 2) / self.SQRT_2
 
-        maxL = audioop.max(fromstring(chL, dtype=int16), 2) / sqrt(2)
-        max_r = audioop.max(fromstring(chR, dtype=int16), 2) / sqrt(2)
+        L_height = (lfc3 * 0.9) * rms_l / self.sample_max
+        R_height = (lfc3 * 0.9) * rms_r / self.sample_max
 
-        L_height = (lfc3 * 0.9) * rmsL / self._sampleMAX
-        R_height = (lfc3 * 0.9) * rmsR / self._sampleMAX
+        peak_l = (lfc3 * 0.9) * max_l / self.sample_max
+        peak_r = (lfc3 * 0.9) * max_r / self.sample_max
 
-        peakL = (lfc3 * 0.9) * maxL / self._sampleMAX
-        peakR = (lfc3 * 0.9) * max_r / self._sampleMAX
+        x1_bargraph_l = lfc0 + ((mfc2 - lfc0) / 5)
+        y1_bargraph_l = lfc3 * 0.95
 
-        x1_barL = lfc0 + ((mfc2 - lfc0) / 5)
-        y1_barL = lfc3 * 0.95
+        x_bargraph_l = x1_bargraph_l + ((mfc2 - lfc0) / 5)
+        y_bargraph_l = y1_bargraph_l - L_height
 
-        x_barL = x1_barL + ((mfc2 - lfc0) / 5)
-        y_barL = y1_barL - L_height
+        x1_bargraph_r = lfc0 + (((mfc2 - lfc0) / 5) * 3)
+        y1_bargraph_r = y1_bargraph_l
 
-        x1_barR = lfc0 + (((mfc2 - lfc0) / 5) * 3)
-        y1_barR = y1_barL
+        x_bargraph_r = x1_bargraph_r + ((mfc2 - lfc0) / 5)
+        y_bargraph_r = y1_bargraph_r - R_height
 
-        x_barR = x1_barR + ((mfc2 - lfc0) / 5)
-        y_barR = y1_barR - R_height
+        self.canvas.coords("bargraph_l", x_bargraph_l, y_bargraph_l, x1_bargraph_l, y1_bargraph_l)
+        self.canvas.coords("bargraph_r", x_bargraph_r, y_bargraph_r, x1_bargraph_r, y1_bargraph_r)
 
-        self.canvas.coords("barL", x_barL, y_barL, x1_barL, y1_barL)
-        self.canvas.coords("barR", x_barR, y_barR, x1_barR, y1_barR)
+        y_peak_l = (lfc3 * 0.95) - peak_l
+        y_peak_r = (lfc3 * 0.95) - peak_r
 
-        y_peakL = (lfc3 * 0.95) - peakL
-        y_peakR = (lfc3 * 0.95) - peakR
+        x_peak_l = x1_bargraph_l + 1
+        x1_peak_l = x_bargraph_l
 
-        x_peakL = x1_barL + 1
-        x1_peakL = x_barL
+        x_peak_r = x1_bargraph_r + 1
+        x1_peak_r = x_bargraph_r
 
-        x_peakR = x1_barR + 1
-        x1_peakR = x_barR
-
-        self.canvas.coords("peakL", x_peakL, y_peakL, x1_peakL, y_peakL)
-        self.canvas.coords("peakR", x_peakR, y_peakR, x1_peakR, y_peakR)
+        self.canvas.coords("peak_l", x_peak_l, y_peak_l, x1_peak_l, y_peak_l)
+        self.canvas.coords("peak_r", x_peak_r, y_peak_r, x1_peak_r, y_peak_r)
 
 
     def _drawScope(self):
-        sc0, sc1 = self._scopeCenter
+        scx, scy = self._scopeCenter
         for x in range(0, self._pointsNumber):
             self.canvas.create_line(
-                sc0, sc1, sc0, sc1,
+                scx, scy, scx, scy,
                 fill=self.pointColor,
                 width=self.pointSize,
                 tags=f"liss_point_{x}"
             )
 
-        self.canvas.create_rectangle(0, 0, 0, 0, fill="green", tags="barL")
-        self.canvas.create_rectangle(0, 0, 0, 0, fill="green", tags="barR")
-        self.canvas.create_line(0, 0, 0, 0, fill="red", tags="peakL", width=3)
-        self.canvas.create_line(0, 0, 0, 0, fill="red", tags="peakR", width=3)
+        self.canvas.create_rectangle(0, 0, 0, 0, fill="green", tags="bargraph_l")
+        self.canvas.create_rectangle(0, 0, 0, 0, fill="green", tags="bargraph_r")
+        self.canvas.create_line(0, 0, 0, 0, fill="red", tags="peak_l", width=3)
+        self.canvas.create_line(0, 0, 0, 0, fill="red", tags="peak_r", width=3)
 
 
     def _mainCanvasResize(self, event):
@@ -213,7 +214,7 @@ class LissajousMonitor(tk.Tk):
         mfc0, mfc1, mfc2, mfc3 = self._mFrameCoords
         lfc0, lfc1, lfc2, lfc3 = self._lFrameCoords
 
-        sc0, sc1 = self._scopeCenter
+        scx, scy = self._scopeCenter
 
         self.canvas.coords("topL", mfc0, mfc1, mfc2, mfc1)
         self.canvas.coords("bottomL", mfc0, mfc3, mfc2, mfc3)
@@ -225,7 +226,7 @@ class LissajousMonitor(tk.Tk):
         self.canvas.coords("yAxis", int(lfc0 / 2), lfc1, int(lfc0 / 2), lfc3)
 
         max_r = self._max_r + 4
-        self.canvas.coords("scp_limit", sc0 - max_r, sc1 - max_r, sc0 + max_r, sc1 + max_r)
+        self.canvas.coords("scp_limit", scx - max_r, scy - max_r, scx + max_r, scy + max_r)
         self.canvas.coords("FPS_text", 10, mfc3 - 10)
 
 
