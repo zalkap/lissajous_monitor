@@ -12,52 +12,50 @@ import tkinter as tk
 class LissajousMonitor(tk.Tk):
 
     SQRT_2 = np.sqrt(2)
-    pointSize = 2
-    canvasColor = "black"
-    gridColor = "dark slate gray"
-    pointColor = "yellow"
 
-    _mFrameCoords = (0, 0, 0, 0)
-    _lFrameCoords = (0, 0, 0, 0)
-    _scopeCenter = (0, 0)
-    _max_r = 0
-    _p_shift = 0
-    sample_max = (2 ** 16) / 2
+    point_size = 2
+    canvas_color = "black"
+    grid_color = "dark slate gray"
+    point_color = "yellow"
 
-    _pointsNumber = 196
+    number_of_points = 196
     sample_size = 48
     bargraph_frequency = 64
-    _pointCounter = 0
 
-    _pps = 0
-    _currTime = time.time()
-    _prevTime = time.time()
-
-    _readSoundThread = None
-    _windowExists = True
-
-    def __init__(self, xSize, ySize, title, titleBar):
+    def __init__(self, window_size: tuple[int, int], title, titleBar):
         super().__init__()
+
+        self._m_frame_coords = (0, 0, 0, 0)
+        self._l_frame_coords = (0, 0, 0, 0)
+        self._scope_center = (0, 0)
+        self._max_r = 0
+        self._p_shift = 0
+        self._sample_max = (2 ** 16) / 2
+        self._pps = 0
+        
+        self._current_time = time.time()
+        self._previous_time = time.time()
+
+        self._window_exists = True
+
+        
         self.title(title)
         scr_width = self.winfo_screenwidth()
         scr_height = self.winfo_screenheight()
+        xSize, ySize = window_size
         self.protocol('WM_DELETE_WINDOW', self._closeWindow)
         if titleBar:
-            xShift = (scr_width - xSize) / 2
-            yShift = (scr_height - ySize) / 2
-            self.geometry("%ix%i+%i+%i" % (xSize, ySize, xShift, yShift))
+            xShift, yShift = int((scr_width - xSize) / 2), int((scr_height - ySize) / 2)
+            self.geometry(f"{xSize}x{ySize}+{xShift}+{yShift}")
             self.minsize(xSize, ySize)
         else:
-            self.geometry("%ix%i" % (scr_width, scr_height))
+            self.geometry(f"{scr_width}x{scr_height}")
 
         self.overrideredirect(not titleBar)
 
         self._readSoundThread = threading.Thread(target=self.read_alsa_audio, args=())
 
-        if self.pointSize == 1:
-            self._p_shift = 1
-        else:
-            self._p_shift = (self.pointSize / 2)
+        self._p_shift = 1 if self.point_size == 1 else int(self.point_size / 2)
 
         self._mainCanvas()
         self._drawScope()
@@ -85,7 +83,7 @@ class LissajousMonitor(tk.Tk):
             periodsize=self.sample_size
         )
         idx, bar_sample = 0, b""
-        while self._windowExists:
+        while self._window_exists:
             l, data = audio_in.read()
             if l == self.sample_size:
                 if idx == self.bargraph_frequency:
@@ -100,44 +98,45 @@ class LissajousMonitor(tk.Tk):
     def _redrawLissScope(self, stereo_channels):
 
         channel_l, channel_r = stereo_channels
-
+        points_counter = 0
         for x in range(0, len(channel_l), self.sample_size // 2):
 
-            if self._pointCounter == self._pointsNumber:
-                self._pointCounter = 0
+            if points_counter == self.number_of_points:
+                points_counter = 0
 
             channel_left = np.mean(np.frombuffer(channel_l[x: x + self.sample_size // 2], dtype=np.int16))
             channel_right = np.mean(np.frombuffer(channel_r[x: x + self.sample_size // 2], dtype=np.int16))
 
-            x_scr = self._scopeCenter[0] + (self._max_r * channel_left / self.sample_max)
-            y_scr = self._scopeCenter[1] - (self._max_r * channel_right / self.sample_max)
+            x_scr = self._scope_center[0] + (self._max_r * channel_left / self._sample_max)
+            y_scr = self._scope_center[1] - (self._max_r * channel_right / self._sample_max)
 
             self.canvas.coords(
-                f"liss_point_{self._pointCounter}",
+                f"liss_point_{points_counter}",
                 x_scr - self._p_shift,
                 y_scr - self._p_shift,
                 x_scr + (self._p_shift - 1),
                 y_scr + (self._p_shift - 1)
             )
-            self._pointCounter += 1
+            points_counter += 1
             self._pps += 1
 
-        self._currTime = time.time()
-        if ((self._currTime - self._prevTime) >= 5):
-            self.canvas.itemconfigure("FPS_text", text="PPS: %.2f" % (
-                (self._pps) / (self._currTime - self._prevTime)))
-            self._prevTime = self._currTime
-            self._pps = 0
+        self._current_time = time.time()
+        if ((self._current_time - self._previous_time) >= 5):
+            self.canvas.itemconfigure(
+                "PPS_TEXT",
+                text=f"PPS: {self._pps / (self._current_time - self._previous_time):.2f}"
+            )
+            self._previous_time, self._pps = self._current_time, 0
 
 
     def redraw_bargraphs(self, stereo_channels):
 
         channel_l, channel_r = stereo_channels
 
-        mfc0, mfc1, mfc2, mfc3 = self._mFrameCoords
-        lfc0, lfc1, lfc2, lfc3 = self._lFrameCoords
+        mfc0, mfc1, mfc2, mfc3 = self._m_frame_coords
+        lfc0, lfc1, lfc2, lfc3 = self._l_frame_coords
 
-        scx, scy = self._scopeCenter
+        scx, scy = self._scope_center
 
         rms_l = audioop.rms(np.frombuffer(channel_l, dtype=np.int16), 2)
         rms_r = audioop.rms(np.frombuffer(channel_r, dtype=np.int16), 2)
@@ -145,11 +144,11 @@ class LissajousMonitor(tk.Tk):
         max_l = audioop.max(np.frombuffer(channel_l, dtype=np.int16), 2) / self.SQRT_2
         max_r = audioop.max(np.frombuffer(channel_r, dtype=np.int16), 2) / self.SQRT_2
 
-        L_height = (lfc3 * 0.9) * rms_l / self.sample_max
-        R_height = (lfc3 * 0.9) * rms_r / self.sample_max
+        L_height = (lfc3 * 0.9) * rms_l / self._sample_max
+        R_height = (lfc3 * 0.9) * rms_r / self._sample_max
 
-        peak_l = (lfc3 * 0.9) * max_l / self.sample_max
-        peak_r = (lfc3 * 0.9) * max_r / self.sample_max
+        peak_l = (lfc3 * 0.9) * max_l / self._sample_max
+        peak_r = (lfc3 * 0.9) * max_r / self._sample_max
 
         x1_bargraph_l = lfc0 + ((mfc2 - lfc0) / 5)
         y1_bargraph_l = lfc3 * 0.95
@@ -175,46 +174,46 @@ class LissajousMonitor(tk.Tk):
         x_peak_r = x1_bargraph_r + 1
         x1_peak_r = x_bargraph_r
 
-        self.canvas.coords("peak_l", x_peak_l, y_peak_l, x1_peak_l, y_peak_l)
-        self.canvas.coords("peak_r", x_peak_r, y_peak_r, x1_peak_r, y_peak_r)
+        self.canvas.coords("PEAK_L", x_peak_l, y_peak_l, x1_peak_l, y_peak_l)
+        self.canvas.coords("PEAK_R", x_peak_r, y_peak_r, x1_peak_r, y_peak_r)
 
 
     def _drawScope(self):
-        scx, scy = self._scopeCenter
-        for x in range(0, self._pointsNumber):
+        scx, scy = self._scope_center
+        for x in range(0, self.number_of_points):
             self.canvas.create_line(
                 scx, scy, scx, scy,
-                fill=self.pointColor,
-                width=self.pointSize,
+                fill=self.point_color,
+                width=self.point_size,
                 tags=f"liss_point_{x}"
             )
 
         self.canvas.create_rectangle(0, 0, 0, 0, fill="green", tags="bargraph_l")
         self.canvas.create_rectangle(0, 0, 0, 0, fill="green", tags="bargraph_r")
-        self.canvas.create_line(0, 0, 0, 0, fill="red", tags="peak_l", width=3)
-        self.canvas.create_line(0, 0, 0, 0, fill="red", tags="peak_r", width=3)
+        self.canvas.create_line(0, 0, 0, 0, fill="red", tags="PEAK_L", width=3)
+        self.canvas.create_line(0, 0, 0, 0, fill="red", tags="PEAK_R", width=3)
 
 
     def _mainCanvasResize(self, event):
 
-        self._lFrameCoords = (int(event.width * 0.85), 1, event.width - 2, event.height - 2)
-        self._mFrameCoords = (1, 1, event.width - 2, event.height - 2)
-        self._scopeCenter = (int(self._lFrameCoords[0] / 2), int(event.height / 2))
+        self._l_frame_coords = (int(event.width * 0.85), 1, event.width - 2, event.height - 2)
+        self._m_frame_coords = (1, 1, event.width - 2, event.height - 2)
+        self._scope_center = (int(self._l_frame_coords[0] / 2), int(event.height / 2))
 
-        if self._mFrameCoords[3] >= self._lFrameCoords[0]:
-            self._max_r = int((self._lFrameCoords[0] * 0.9) / 2)
+        if self._m_frame_coords[3] >= self._l_frame_coords[0]:
+            self._max_r = int((self._l_frame_coords[0] * 0.9) / 2)
         else:
-            self._max_r = int((self._mFrameCoords[3] * 0.9) / 2)
+            self._max_r = int((self._m_frame_coords[3] * 0.9) / 2)
 
         self._updateGrid(event)
 
 
     def _updateGrid(self, event):
 
-        mfc0, mfc1, mfc2, mfc3 = self._mFrameCoords
-        lfc0, lfc1, lfc2, lfc3 = self._lFrameCoords
+        mfc0, mfc1, mfc2, mfc3 = self._m_frame_coords
+        lfc0, lfc1, lfc2, lfc3 = self._l_frame_coords
 
-        scx, scy = self._scopeCenter
+        scx, scy = self._scope_center
 
         self.canvas.coords("topL", mfc0, mfc1, mfc2, mfc1)
         self.canvas.coords("bottomL", mfc0, mfc3, mfc2, mfc3)
@@ -227,31 +226,30 @@ class LissajousMonitor(tk.Tk):
 
         max_r = self._max_r + 4
         self.canvas.coords("scp_limit", scx - max_r, scy - max_r, scx + max_r, scy + max_r)
-        self.canvas.coords("FPS_text", 10, mfc3 - 10)
+        self.canvas.coords("PPS_TEXT", 10, mfc3 - 10)
 
 
     def _drawGrid(self):
         mGrid = {"topL": 3, "bottomL": 3, "leftL": 3, "rightL": 3, "xAxis": 1, "yAxis": 1}
         for tag in mGrid.keys():
-            self.canvas.create_line(0, 0, 0, 0, fill=self.gridColor, width=mGrid[tag], tags=tag)
+            self.canvas.create_line(0, 0, 0, 0, fill=self.grid_color, width=mGrid[tag], tags=tag)
 
-        self.canvas.create_line(0, 0, 0, 0, fill=self.gridColor, width=1, tags="middleL")
-        self.canvas.create_text(0, 0, text="PPS: ", tags="FPS_text", anchor=tk.SW, fill="yellow")
+        self.canvas.create_line(0, 0, 0, 0, fill=self.grid_color, width=1, tags="middleL")
+        self.canvas.create_text(0, 0, text="PPS: ", tags="PPS_TEXT", anchor=tk.SW, fill="yellow")
 
-        self.canvas.create_rectangle(0, 0, 0, 0, outline=self.gridColor, tags="scp_limit")
+        self.canvas.create_rectangle(0, 0, 0, 0, outline=self.grid_color, tags="scp_limit")
 
 
     def _mainCanvas(self):
-        self.canvas = tk.Canvas(self, bg=self.canvasColor, bd=0)
+        self.canvas = tk.Canvas(self, bg=self.canvas_color, bd=0)
         self.canvas.pack(anchor=tk.NW, padx=0, pady=0, expand=tk.YES, fill=tk.BOTH)
         self._drawGrid()
         self.canvas.bind("<Configure>", self._mainCanvasResize)
 
 
     def _closeWindow(self):
-
         while self._readSoundThread.is_alive():
-            self._windowExists = False
+            self._window_exists = False
             self._readSoundThread._Thread__stop()
         time.sleep(0.1)
         self.destroy()
@@ -262,5 +260,5 @@ class LissajousMonitor(tk.Tk):
 
 
 if __name__ == "__main__":
-    lScope = LissajousMonitor(800, 700, "Lissajous monitor", True)
+    lScope = LissajousMonitor((800, 800), "Lissajous monitor", True)
     lScope.mainloop()
