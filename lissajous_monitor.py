@@ -84,7 +84,7 @@ class LissajousMonitor(tk.Tk, threading.Thread):
         return (channel_left, channel_right)
 
 
-    def update_liss_scope(self, stereo_channels):
+    def update_scope(self, stereo_channels):
 
         channel_l, channel_r = stereo_channels
         scope_center_x, scope_center_y = self._scope_center
@@ -216,9 +216,16 @@ class LissajousMonitor(tk.Tk, threading.Thread):
 
 
     def init_grid(self):
-        mGrid = {"TOP_L": 3, "BOTTOM_L": 3, "LEFT_L": 3, "RIGHT_L": 3, "X_AXIS": 1, "Y_AXIS": 1}
-        for tag in mGrid.keys():
-            self.canvas.create_line(0, 0, 0, 0, fill=self.grid_color, width=mGrid[tag], tags=tag)
+        grid_params = {
+            "TOP_L": 3,
+            "BOTTOM_L": 3,
+            "LEFT_L": 3,
+            "RIGHT_L": 3,
+            "X_AXIS": 1,
+            "Y_AXIS": 1
+        }
+        for tag, width in grid_params.items():
+            self.canvas.create_line(0, 0, 0, 0, fill=self.grid_color, width=width, tags=tag)
 
         self.canvas.create_line(0, 0, 0, 0, fill=self.grid_color, width=1, tags="MIDDLE_L")
         self.canvas.create_text(0, 0, text="PPS: ", tags="PPS_TEXT", anchor=tk.SW, fill="yellow")
@@ -246,17 +253,17 @@ class LissajousMonitor(tk.Tk, threading.Thread):
             format=alsaaudio.PCM_FORMAT_S16_LE,
             periodsize=self.sample_size
         )
-        idx, bar_sample = 0, (b"", b"")
+        idx, bar_sample = 0, (bytes(), bytes())
         while self._window_exists:
             l, data = audio_feed.read()
 
             split_channels_data = self.split_stereo(data)
-            self.update_liss_scope(split_channels_data)
+            self.update_scope(split_channels_data)
             
             bar_sample = tuple(bar_sample[i] + d for i, d in enumerate(split_channels_data))
             if idx == self.bargraph_frequency:
                 self.update_bargraphs(bar_sample)
-                idx, bar_sample = 0, (b"", b"")
+                idx, bar_sample = 0, (bytes(), bytes())
 
             idx += 1
 
