@@ -100,7 +100,7 @@ class LissajousMonitor(tk.Tk, threading.Thread):
             y_scr = scope_center_y - (self._max_r * channel_right / self._sample_max)
 
             self.canvas.coords(
-                f"LISS_POINT_{self.__points_counter}",
+                f"POINT_{self.__points_counter}",
                 x_scr - self._p_shift,
                 y_scr - self._p_shift,
                 x_scr + (self._p_shift - 1),
@@ -171,7 +171,7 @@ class LissajousMonitor(tk.Tk, threading.Thread):
                 scx, scy, scx, scy,
                 fill=self.point_color,
                 width=self.point_size,
-                tags=f"LISS_POINT_{x}"
+                tags=f"POINT_{x}"
             )
 
         self.canvas.create_rectangle(0, 0, 0, 0, fill="green", tags="BARGRAPH_L")
